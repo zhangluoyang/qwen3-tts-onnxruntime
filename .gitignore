@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+build/
+outputs/
+onnx_fp16/
+onnx_custom_fp16/
+onnx_design_fp16/
+
+.vscode/
