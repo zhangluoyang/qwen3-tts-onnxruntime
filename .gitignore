@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+build/
+outputs/
+onnx*/
+*.onnx
+
+cpp/
+script/
+scripts/
+
+.vscode/
