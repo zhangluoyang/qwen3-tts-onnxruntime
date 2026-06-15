@@ -2,6 +2,8 @@
 
 A lightweight ONNX Runtime implementation for Qwen3-TTS, providing model export tools and Python inference examples for Base, CustomVoice, and VoiceDesign models.
 
+项目介绍：[Qwen3-TTS ONNX Runtime 实践](https://zhuanlan.zhihu.com/p/2049974407729243443)
+
 ## 安装依赖
 
 ```bash
