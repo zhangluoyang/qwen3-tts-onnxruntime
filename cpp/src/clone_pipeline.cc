@@ -3,14 +3,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
-#include <fstream>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
-
-#include "qwen3tts/npy.h"
 
 namespace qwen3tts {
 namespace {
@@ -27,17 +23,6 @@ std::vector<int64_t> Range(int64_t begin, int64_t end) {
   return out;
 }
 
-std::string Trim(std::string s) {
-  auto not_space = [](unsigned char c) { return !std::isspace(c); };
-  s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
-  s.erase(std::find_if(s.rbegin(), s.rend(), not_space).base(), s.end());
-  return s;
-}
-
-bool ParseBool(const std::string& value) {
-  return value == "1" || value == "true" || value == "True" || value == "yes";
-}
-
 void ValidateRank3(const FloatTensor& tensor, const std::string& name) {
   if (tensor.shape().size() != 3 || tensor.shape()[0] != 1) {
     throw std::invalid_argument(name + " must have shape [1,T,H]");
@@ -48,7 +33,7 @@ void ValidateRank3(const FloatTensor& tensor, const std::string& name) {
 
 ClonePipeline::ClonePipeline(CloneRuntimeConfig config)
     : config_(std::move(config)),
-      env_(ORT_LOGGING_LEVEL_WARNING, "qwen3tts_clone_cpp"),
+      env_(ORT_LOGGING_LEVEL_WARNING, "qwen3tts_cpp"),
       talker_core_(env_, OrtRunnerOptions{config_.onnx_dir / "talker" / "talker_core.onnx",
                                           config_.use_cuda, config_.cuda_device_id}),
       sub_talker_sample_(env_, OrtRunnerOptions{config_.onnx_dir / "decode" / "sub_talker_sample.onnx",
@@ -298,53 +283,6 @@ Int64Tensor ClonePipeline::MakeGeneratedCodes(const std::vector<int64_t>& frames
   return Int64Tensor({1, static_cast<int64_t>(frames.size() / static_cast<size_t>(config_.num_code_groups)),
                       config_.num_code_groups},
                      frames);
-}
-
-CloneRuntimeConfig LoadConfigFile(const std::filesystem::path& path, CloneRuntimeConfig defaults) {
-  std::ifstream in(path);
-  if (!in) return defaults;
-  std::string line;
-  while (std::getline(in, line)) {
-    line = Trim(line);
-    if (line.empty() || line[0] == '#') continue;
-    auto eq = line.find('=');
-    if (eq == std::string::npos) continue;
-    std::string key = Trim(line.substr(0, eq));
-    std::string value = Trim(line.substr(eq + 1));
-    if (key == "max_new_tokens") defaults.max_new_tokens = std::stoll(value);
-    else if (key == "min_new_tokens") defaults.min_new_tokens = std::stoll(value);
-    else if (key == "eos_token_id") defaults.eos_token_id = std::stoll(value);
-    else if (key == "vocab_size") defaults.vocab_size = std::stoll(value);
-    else if (key == "first_codebook_mask_tail") defaults.first_codebook_mask_tail = std::stoll(value);
-    else if (key == "num_hidden_layers") defaults.num_hidden_layers = std::stoll(value);
-    else if (key == "num_key_value_heads") defaults.num_key_value_heads = std::stoll(value);
-    else if (key == "head_dim") defaults.head_dim = std::stoll(value);
-    else if (key == "num_code_groups") defaults.num_code_groups = std::stoll(value);
-    else if (key == "decode_upsample_rate") defaults.decode_upsample_rate = std::stoll(value);
-    else if (key == "audio_sample_rate") defaults.audio_sample_rate = std::stoll(value);
-    else if (key == "tokenizer_decode_chunk_frames") defaults.tokenizer_decode_chunk_frames = std::stoll(value);
-    else if (key == "tokenizer_decode_context_frames") defaults.tokenizer_decode_context_frames = std::stoll(value);
-    else if (key == "do_sample") defaults.do_sample = ParseBool(value);
-    else if (key == "top_k") defaults.top_k = std::stoi(value);
-    else if (key == "top_p") defaults.top_p = std::stof(value);
-    else if (key == "temperature") defaults.temperature = std::stof(value);
-    else if (key == "repetition_penalty") defaults.repetition_penalty = std::stof(value);
-    else if (key == "seed") defaults.seed = static_cast<uint64_t>(std::stoull(value));
-  }
-  return defaults;
-}
-
-CloneInputs LoadCloneInputs(const std::filesystem::path& fixture_dir) {
-  CloneInputs inputs;
-  inputs.inputs_embeds = ReadFloatNpy(fixture_dir / "inputs_embeds.npy");
-  inputs.attention_mask = ReadInt64Npy(fixture_dir / "attention_mask.npy");
-  inputs.trailing_text_hidden = ReadFloatNpy(fixture_dir / "trailing_text_hidden.npy");
-  inputs.tts_pad_embed = ReadFloatNpy(fixture_dir / "tts_pad_embed.npy");
-  inputs.ref_code = ReadInt64Npy(fixture_dir / "ref_code.npy");
-  if (inputs.ref_code.shape().size() == 2) {
-    inputs.ref_code.shape().insert(inputs.ref_code.shape().begin(), 1);
-  }
-  return inputs;
 }
 
 }  // namespace qwen3tts

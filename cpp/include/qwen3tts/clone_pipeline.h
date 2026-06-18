@@ -100,7 +100,4 @@ class ClonePipeline {
   OrtRunner tokenizer_decode_;
 };
 
-CloneRuntimeConfig LoadConfigFile(const std::filesystem::path& path, CloneRuntimeConfig defaults);
-CloneInputs LoadCloneInputs(const std::filesystem::path& fixture_dir);
-
 }  // namespace qwen3tts

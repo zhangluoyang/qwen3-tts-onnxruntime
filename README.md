@@ -112,7 +112,6 @@ python build_cpp.py
 编译完成后会生成：
 
 - `cpp/build/qwen3tts_examples`: 三种模型的流式/非流式统一示例。
-- `cpp/build/qwen3tts_clone`: 旧版 Base Clone 示例，保留兼容。
 
 ### 直接运行
 
@@ -146,9 +145,3 @@ python build_cpp.py
 - VoiceDesign 模型目录：`/home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`
 - 参考音频：`data/ref_from_mp3_24k_mono.wav`
 - 输出目录：`outputs/cpp_examples`
-
-旧版 Base Clone 示例也可以直接运行：
-
-```bash
-./cpp/build/qwen3tts_clone
-```
