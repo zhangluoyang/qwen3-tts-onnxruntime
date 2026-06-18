@@ -64,6 +64,7 @@ class ClonePipeline {
   explicit ClonePipeline(CloneRuntimeConfig config);
 
   CloneResult Run(const CloneInputs& inputs);
+  CloneResult Run(const CloneInputs& inputs, const CloneRuntimeConfig& runtime_config);
   std::vector<std::pair<std::string, double>> SessionLoadTimings() const;
 
  private:

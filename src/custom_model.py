@@ -1,7 +1,15 @@
 from src.models import *
 
-class ConditionedStreamingSession(StreamingSessionBase):
-    """Streaming session for CustomVoice prompt builders."""
+class ConditionedStreamingSession(ConditionedSegmentStreamingSession):
+    """CustomVoice 的分段重组 prompt 流式会话。
+
+    每个 segment 都重新构建完整的 CustomVoice non-streaming prompt；
+    最近若干段已生成的 codec codes 会作为 anchor 放进下一段 prompt 前缀，
+    因此不会再沿用旧流式路径里不断增长的 KV cache。
+    """
+
+    stream_debug_prefix = "custom_segment"
+    stream_debug_mode = "custom_voice_segment_prompt"
 
     def __init__(
         self,
@@ -13,15 +21,28 @@ class ConditionedStreamingSession(StreamingSessionBase):
     ) -> None:
         self.speaker = speaker
         self.instruct = instruct
-        super().__init__(model=model, language=language, **kwargs)
+        super().__init__(
+            model=model,
+            language=language,
+            **kwargs,
+        )
 
-    def _build_streaming_prompt(self, initial_text: str, include_initial_eos: bool) -> PromptInputs:
-        return self.model.prompt_builder.build_streaming(
+    def _build_segment_prompt(
+        self,
+        segment: str,
+        anchor_text: str,
+        anchor_code: np.ndarray | None,
+    ) -> PromptInputs:
+        # CustomVoice 的 speaker/language/instruct 条件每段都会重新放进 prompt；
+        # anchor_text/anchor_code 只负责携带最近几段生成过的上下文音频。
+        return self.model.prompt_builder.build(
+            text=segment,
             speaker=self.speaker or "",
             language=self.language,
             instruct=self.instruct,
-            initial_text=initial_text,
-            include_initial_eos=include_initial_eos,
+            non_streaming_mode=True,
+            anchor_text=anchor_text,
+            anchor_code=anchor_code,
         )
 
 
@@ -125,9 +146,11 @@ class CustomQwen3TTSOnnxModel(Qwen3TTSOnnxModelBase):
         left_context_frames: int = 25,
         min_text_chunk_chars: int = 20,
         max_text_chunk_chars: int = 80,
-        kv_window_frames: int | None = 512,
-        kv_window_max_frames: int | None = None,
+        debug_stream: bool = False,
+        max_kv_cache_len: int | None = None,
+        kv_anchor_segment_count: int = 3,
     ):
+        # 创建可手动 push_text/end_text 的会话，适合接 WebSocket/SSE 这种增量文本源。
         return ConditionedStreamingSession(
             model=self,
             speaker=speaker,
@@ -147,8 +170,9 @@ class CustomQwen3TTSOnnxModel(Qwen3TTSOnnxModelBase):
             left_context_frames=left_context_frames,
             min_text_chunk_chars=min_text_chunk_chars,
             max_text_chunk_chars=max_text_chunk_chars,
-            kv_window_frames=kv_window_frames,
-            kv_window_max_frames=kv_window_max_frames,
+            debug_stream=debug_stream,
+            max_kv_cache_len=max_kv_cache_len,
+            kv_anchor_segment_count=kv_anchor_segment_count,
         )
 
     def stream_custom_voice(
@@ -171,9 +195,12 @@ class CustomQwen3TTSOnnxModel(Qwen3TTSOnnxModelBase):
         left_context_frames: int = 25,
         min_text_chunk_chars: int = 20,
         max_text_chunk_chars: int = 80,
-        kv_window_frames: int | None = 512,
-        kv_window_max_frames: int | None = None,
+        debug_stream: bool = False,
+        max_kv_cache_len: int | None = None,
+        kv_anchor_segment_count: int = 3,
     ):
+        # 便捷 generator：把 text_deltas 逐段推入 session，并在末尾自动 end_text。
+        # 返回的每个 chunk 都是 AudioGenerationOutputs，chunk.audio 是本次新增 PCM。
         session = self.create_custom_voice_stream(
             speaker=speaker,
             language=language,
@@ -192,10 +219,8 @@ class CustomQwen3TTSOnnxModel(Qwen3TTSOnnxModelBase):
             left_context_frames=left_context_frames,
             min_text_chunk_chars=min_text_chunk_chars,
             max_text_chunk_chars=max_text_chunk_chars,
-            kv_window_frames=kv_window_frames,
-            kv_window_max_frames=kv_window_max_frames,
+            debug_stream=debug_stream,
+            max_kv_cache_len=max_kv_cache_len,
+            kv_anchor_segment_count=kv_anchor_segment_count,
         )
-        deltas = (text_deltas,) if isinstance(text_deltas, str) else text_deltas
-        for delta in deltas:
-            yield from session.push_text_iter(delta)
-        yield from session.end_text_iter()
+        yield from self._iter_text_delta_stream(session, text_deltas)

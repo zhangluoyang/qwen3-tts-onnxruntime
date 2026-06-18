@@ -350,6 +350,23 @@ class Qwen3TTSPromptBuilder:
             return np.zeros((1, 0, int(self.talker_config["hidden_size"])), dtype=self.dtype)
         return self.text_project(ids)
 
+    def _normalize_anchor_code(self, anchor_code: Optional[np.ndarray]) -> tuple[Optional[np.ndarray], int]:
+        if anchor_code is None:
+            return None, 0
+        anchor_code = np.asarray(anchor_code, dtype=np.int64)
+        if anchor_code.ndim == 3:
+            if anchor_code.shape[0] != 1:
+                raise NotImplementedError(f"anchor_code batch_size must be 1, got {anchor_code.shape[0]}")
+            anchor_code = anchor_code[0]
+        if anchor_code.ndim != 2:
+            raise ValueError(f"anchor_code must have shape [frames, groups], got {anchor_code.shape}")
+        if anchor_code.shape[1] != int(self.talker_config["num_code_groups"]):
+            raise ValueError(
+                "anchor_code codebook count mismatch: "
+                f"expected {self.talker_config['num_code_groups']}, got {anchor_code.shape[1]}"
+            )
+        return anchor_code, int(anchor_code.shape[0])
+
     def _instruct_embed(self, instruct: Optional[str]) -> Optional[np.ndarray]:
         if instruct is None or instruct == "":
             return None
@@ -401,6 +418,8 @@ class Qwen3TTSPromptBuilder:
         codec_input: np.ndarray,
         instruct: Optional[str] = None,
         non_streaming_mode: bool = True,
+        anchor_text: str = "",
+        anchor_code: Optional[np.ndarray] = None,
     ) -> PromptInputs:
         input_id = self.tokenize(self.build_assistant_text(text))
         instruct_embed = self._instruct_embed(instruct)
@@ -410,23 +429,60 @@ class Qwen3TTSPromptBuilder:
         codec_part = self._role_aligned_codec_part(codec_input, tts_bos_embed, tts_pad_embed)
         talker_input_embed = np.concatenate([role_embed, codec_part], axis=1)
 
-        first_text = self.text_project(input_id[:, 3:4]) + codec_input[:, -1:]
-        talker_input_embed = np.concatenate([talker_input_embed, first_text], axis=1)
-        if non_streaming_mode:
-            talker_input_embed, trailing_text_hidden = self._append_non_streaming_text(
-                talker_input_embed=talker_input_embed,
-                input_id=input_id,
-                tts_eos_embed=tts_eos_embed,
-                tts_pad_embed=tts_pad_embed,
+        anchor_code, anchor_code_len = self._normalize_anchor_code(anchor_code)
+
+        if non_streaming_mode and anchor_code_len > 0:
+            anchor_text_ids = self.target_text_ids(anchor_text or "")
+            anchor_text_embed = (
+                self.text_project(anchor_text_ids)
+                if anchor_text_ids.shape[1]
+                else np.zeros((1, 0, int(self.talker_config["hidden_size"])), dtype=self.dtype)
             )
+            target_text_embed = self.text_project(input_id[:, 3:-5]) if input_id[:, 3:-5].shape[1] else np.zeros(
+                (1, 0, int(self.talker_config["hidden_size"])),
+                dtype=self.dtype,
+            )
+            text_with_eos = np.concatenate([anchor_text_embed, target_text_embed, tts_eos_embed], axis=1)
+            codec_pad = self.codec_embed(
+                np.full((1, text_with_eos.shape[1]), int(self.talker_config["codec_pad_id"]), dtype=np.int64)
+            )
+            text_side = text_with_eos + codec_pad
+            codec_bos = self.codec_embed(np.array([[int(self.talker_config["codec_bos_id"])]], dtype=np.int64))
+            codec_side = np.concatenate([codec_bos, self.ref_code_embed(anchor_code)], axis=1)
+            codec_side = codec_side + np.broadcast_to(
+                tts_pad_embed,
+                (1, codec_side.shape[1], tts_pad_embed.shape[-1]),
+            ).copy()
+            talker_input_embed = np.concatenate([talker_input_embed, text_side, codec_side], axis=1)
+            trailing_text_hidden = tts_pad_embed
         else:
-            trailing_text_hidden = np.concatenate([self.text_project(input_id[:, 4:-5]), tts_eos_embed], axis=1)
+            first_text = self.text_project(input_id[:, 3:4]) + codec_input[:, -1:]
+            talker_input_embed = np.concatenate([talker_input_embed, first_text], axis=1)
+            if non_streaming_mode:
+                talker_input_embed, trailing_text_hidden = self._append_non_streaming_text(
+                    talker_input_embed=talker_input_embed,
+                    input_id=input_id,
+                    tts_eos_embed=tts_eos_embed,
+                    tts_pad_embed=tts_pad_embed,
+                )
+            else:
+                trailing_text_hidden = np.concatenate([self.text_project(input_id[:, 4:-5]), tts_eos_embed], axis=1)
 
         if instruct_embed is not None:
             talker_input_embed = np.concatenate([instruct_embed, talker_input_embed], axis=1)
 
         prompt = self._left_pad_prompt_batch([talker_input_embed], [trailing_text_hidden], tts_pad_embed)
-        prompt.metadata.update({"input_ids": input_id})
+        prompt.metadata.update(
+            {
+                "input_ids": input_id,
+                "anchor_text": str(anchor_text or ""),
+                "anchor_code_len": int(anchor_code_len),
+                "decode_context_code_len": int(anchor_code_len),
+                # anchor_code 不只给 talker 当 in-context，也要给 tokenizer decoder
+                # 当左上下文；context_frames 会裁掉它对应的音频，避免边界处从零上下文起声。
+                "ref_code": anchor_code if anchor_code_len > 0 else None,
+            }
+        )
         return prompt
 
     def _build_streaming_conditioned_prompt(
@@ -456,14 +512,23 @@ class Qwen3TTSPromptBuilder:
 
         if instruct_embed is not None:
             talker_input_embed = np.concatenate([instruct_embed, talker_input_embed], axis=1)
-        trailing_text_hidden = target_text_hidden
+
+        # 和官方 generate 的相位对齐：第一帧的 codec_bos/speaker 尾部 embedding
+        # 与第一个目标文本 embedding 相加后放进 prefill。这样 prefill 输出的 logits
+        # 已经可以直接 sample 第 0 帧 codec，后续统一走 sample_then_advance。
+        first_text_embed = target_text_hidden[:, :1]
+        initial_codec_embed = codec_input[:, -1:].astype(self.dtype, copy=False)
+        first_decode_embed = first_text_embed + initial_codec_embed
+        talker_input_embed = np.concatenate([talker_input_embed, first_decode_embed], axis=1)
+        trailing_text_hidden = target_text_hidden[:, 1:]
 
         prompt = self._left_pad_prompt_batch([talker_input_embed], [trailing_text_hidden], tts_pad_embed)
         prompt.metadata.update(
             {
                 "input_ids": input_id,
                 "tts_eos_embed": tts_eos_embed,
-                "initial_codec_embed": np.ascontiguousarray(codec_input[:, -1:].astype(self.dtype, copy=False)),
+                "initial_codec_embed": np.ascontiguousarray(initial_codec_embed),
+                "first_text_embed_in_prefill": True,
                 "initial_text": initial_text or "",
             }
         )
@@ -724,21 +789,8 @@ class BaseVoiceClonePromptBuilder(Qwen3TTSPromptBuilder):
         if not x_vector_only_mode:
             ref_id = self.tokenize(self.build_ref_text(ref_text or ""))
             ref_code_for_metadata = np.asarray(ref_code, dtype=np.int64)
-            anchor_code_len = 0
+            anchor_code, anchor_code_len = self._normalize_anchor_code(anchor_code)
             if anchor_code is not None:
-                anchor_code = np.asarray(anchor_code, dtype=np.int64)
-                if anchor_code.ndim == 3:
-                    if anchor_code.shape[0] != 1:
-                        raise NotImplementedError(f"anchor_code batch_size must be 1, got {anchor_code.shape[0]}")
-                    anchor_code = anchor_code[0]
-                if anchor_code.ndim != 2:
-                    raise ValueError(f"anchor_code must have shape [frames, groups], got {anchor_code.shape}")
-                if anchor_code.shape[1] != int(self.talker_config["num_code_groups"]):
-                    raise ValueError(
-                        "anchor_code codebook count mismatch: "
-                        f"expected {self.talker_config['num_code_groups']}, got {anchor_code.shape[1]}"
-                    )
-                anchor_code_len = int(anchor_code.shape[0])
                 ref_code_for_metadata = np.concatenate([ref_code_for_metadata, anchor_code], axis=0)
             ref_text_embed = self.text_project(ref_id[:, 3:-2]) if ref_id[:, 3:-2].shape[1] else np.zeros(
                 (1, 0, int(self.talker_config["hidden_size"])),
@@ -994,6 +1046,8 @@ class CustomVoicePromptBuilder(Qwen3TTSPromptBuilder):
         language: str = "auto",
         instruct: Optional[str] = None,
         non_streaming_mode: bool = True,
+        anchor_text: str = "",
+        anchor_code: Optional[np.ndarray] = None,
     ) -> PromptInputs:
         if instruct and self.is_0p6b_model():
             raise ValueError("0.6B CustomVoice does not support instruct; only 1.7B CustomVoice allows instruct.")
@@ -1003,6 +1057,8 @@ class CustomVoicePromptBuilder(Qwen3TTSPromptBuilder):
             codec_input=codec_input,
             instruct=instruct,
             non_streaming_mode=non_streaming_mode,
+            anchor_text=anchor_text,
+            anchor_code=anchor_code,
         )
         prompt.metadata.update(
             {
@@ -1079,6 +1135,8 @@ class VoiceDesignPromptBuilder(Qwen3TTSPromptBuilder):
         instruct: str,
         language: str = "auto",
         non_streaming_mode: bool = True,
+        anchor_text: str = "",
+        anchor_code: Optional[np.ndarray] = None,
     ) -> PromptInputs:
         codec_input = self._codec_conditioning(language=language)
         prompt = self._build_conditioned_prompt(
@@ -1086,6 +1144,8 @@ class VoiceDesignPromptBuilder(Qwen3TTSPromptBuilder):
             codec_input=codec_input,
             instruct=instruct,
             non_streaming_mode=non_streaming_mode,
+            anchor_text=anchor_text,
+            anchor_code=anchor_code,
         )
         prompt.metadata.update(
             {

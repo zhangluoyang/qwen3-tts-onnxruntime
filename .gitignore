@@ -4,8 +4,14 @@ __pycache__/
 
 build/
 outputs/
-onnx_fp16/
-onnx_custom_fp16/
-onnx_design_fp16/
+onnx*/
+*.onnx
+
+cpp/build/
+cpp/third_party/
+script/
+scripts/
+!cpp/scripts/
+!cpp/scripts/**
 
 .vscode/

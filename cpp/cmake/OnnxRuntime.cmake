@@ -1,10 +1,16 @@
+get_filename_component(_ORT_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}" ABSOLUTE)
+get_filename_component(_ORT_CPP_DIR "${_ORT_CMAKE_DIR}/.." ABSOLUTE)
+
+set(_ORT_LOCAL_ROOT "${_ORT_CPP_DIR}/third_party/onnxruntime-local/onnxruntime-linux-x64-gpu-1.26.0")
 set(_ORT_PY_DIR "/home/zhang/miniconda3/lib/python3.12/site-packages/onnxruntime/capi")
 set(_ORT_AUDIO_BAR_ROOT "/home/zhang/github/Qwen3-Audio-bar/cpp/third_party/onnxruntime-local/onnxruntime-linux-x64-gpu-1.26.0")
 
 set(ONNXRUNTIME_ROOT "" CACHE PATH "ONNX Runtime release root containing include/ and lib/")
 set(ONNXRUNTIME_LIB "" CACHE FILEPATH "Path to libonnxruntime.so")
 
-if(NOT ONNXRUNTIME_ROOT AND EXISTS "${_ORT_AUDIO_BAR_ROOT}/lib/libonnxruntime.so")
+if((NOT ONNXRUNTIME_ROOT OR NOT EXISTS "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so") AND EXISTS "${_ORT_LOCAL_ROOT}/lib/libonnxruntime.so")
+  set(ONNXRUNTIME_ROOT "${_ORT_LOCAL_ROOT}" CACHE PATH "ONNX Runtime release root" FORCE)
+elseif((NOT ONNXRUNTIME_ROOT OR NOT EXISTS "${ONNXRUNTIME_ROOT}/lib/libonnxruntime.so") AND EXISTS "${_ORT_AUDIO_BAR_ROOT}/lib/libonnxruntime.so")
   set(ONNXRUNTIME_ROOT "${_ORT_AUDIO_BAR_ROOT}" CACHE PATH "ONNX Runtime release root" FORCE)
 endif()
 

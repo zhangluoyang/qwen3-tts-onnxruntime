@@ -140,6 +140,19 @@ CloneResult ClonePipeline::Run(const CloneInputs& inputs) {
   return result;
 }
 
+CloneResult ClonePipeline::Run(const CloneInputs& inputs, const CloneRuntimeConfig& runtime_config) {
+  CloneRuntimeConfig previous = config_;
+  config_ = runtime_config;
+  try {
+    CloneResult result = Run(inputs);
+    config_ = previous;
+    return result;
+  } catch (...) {
+    config_ = previous;
+    throw;
+  }
+}
+
 ClonePipeline::TalkerState ClonePipeline::RunPrefill(const CloneInputs& inputs) {
   const int64_t seq_len = inputs.inputs_embeds.shape()[1];
   std::unordered_map<std::string, Ort::Value> feed;
@@ -233,10 +246,16 @@ FloatTensor ClonePipeline::DecodeAudio(const Int64Tensor& full_codes, int64_t co
 
     int64_t expected = (end_frame - start_frame) * config_.decode_upsample_rate;
     int64_t reported = lengths.empty() ? static_cast<int64_t>(audio_values.size()) : lengths.values()[0];
+    if (reported > static_cast<int64_t>(audio_values.size())) {
+      throw std::runtime_error("tokenizer decode output is shorter than its reported length");
+    }
     if (reported < expected || static_cast<int64_t>(audio_values.size()) < expected) {
       throw std::runtime_error("tokenizer decode returned fewer samples than expected");
     }
-    chunks.insert(chunks.end(), audio_values.values().begin(), audio_values.values().begin() + expected);
+    const int64_t valid_end = std::min<int64_t>(reported, static_cast<int64_t>(audio_values.size()));
+    chunks.insert(chunks.end(),
+                  audio_values.values().begin() + static_cast<std::ptrdiff_t>(valid_end - expected),
+                  audio_values.values().begin() + static_cast<std::ptrdiff_t>(valid_end));
     start_frame = end_frame;
   }
   const int64_t sample_count = static_cast<int64_t>(chunks.size());

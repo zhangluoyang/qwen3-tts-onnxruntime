@@ -1,79 +1,154 @@
+# qwen3-tts-onnxruntime
+
+A lightweight ONNX Runtime implementation for Qwen3-TTS, providing model export tools and Python inference examples for Base, CustomVoice, and VoiceDesign models.
+
+项目介绍：[Qwen3-TTS ONNX Runtime 实践](https://zhuanlan.zhihu.com/p/2049974407729243443)
+
+## 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+## 导出示例
+
+### Base
+
+```bash
 python export_onnx.py \
-  --model-path /home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-0.6B-Base \
-  --output-dir ./onnx_fp16_small \
+  --model-path /home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base \
+  --output-dir ./onnx_fp16 \
   --dtype float16 \
   --device cuda:0 \
   --components all
+```
 
+### CustomVoice
+
+```bash
 python export_onnx.py \
-  --model-path  /home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
+  --model-path /home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice \
   --output-dir ./onnx_custom_fp16 \
   --dtype float16 \
   --device cuda:0 \
   --components all
+```
 
+### VoiceDesign
+
+```bash
 python export_onnx.py \
   --model-path /home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign \
   --output-dir ./onnx_design_fp16 \
   --dtype float16 \
   --device cuda:0 \
   --components all
+```
 
-# /home/zhang/.cache/pip/wheels/50/cc/85/34451a5b4827594563d9d4ed713e4e93e5f1b59929dd51811c
-# 
+## 测试示例
+
+运行测试前，请先按上面的示例导出对应 ONNX 目录。
+
+### Base Clone
+
+```bash
+python test_base_clone_stream_and_nonstream.py
+```
+
+输出文件：
+
+- `outputs/base_clone_nonstream.wav`
+- `outputs/base_clone_stream.wav`
+
+### CustomVoice
+
+```bash
+python test_custom_voice_stream_and_nonstream.py
+```
+
+输出文件：
+
+- `outputs/custom_voice_nonstream.wav`
+- `outputs/custom_voice_stream.wav`
+
+### VoiceDesign
+
+```bash
+python test_voice_design_stream_and_nonstream.py
+```
+
+输出文件：
+
+- `outputs/voice_design_nonstream.wav`
+- `outputs/voice_design_stream.wav`
 
 ## C++ 推理运行
 
-先编译 C++ 版本：
+C++ 版本支持 Base Clone、CustomVoice、VoiceDesign 三种模型，并提供非流式和流式示例。下面命令默认从仓库根目录运行。
+
+### 下载 C++ 依赖
+
+下载脚本放在 `cpp/scripts/download_deps.sh`，第三方依赖会放到 `cpp/third_party/`，不会混到源码目录里。
 
 ```bash
-cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
-cmake --build cpp/build -j 8
+bash cpp/scripts/download_deps.sh
 ```
 
-直接运行 clone 版本：
+脚本会准备：
+
+- ONNX Runtime GPU C++ 包：`cpp/third_party/onnxruntime-local/`
+- FFTW3f 单精度静态库：`cpp/third_party/fftw3-local/`
+
+CUDA、cuDNN、cuBLAS、cuFFT、cuRAND 这些运行库仍然使用当前 Python 环境或系统里已有的安装。
+
+### 编译
+
+```bash
+python build_cpp.py
+```
+
+`build_cpp.py` 会自动使用 `cpp/third_party/` 下面下载好的 ONNX Runtime 和 FFTW3f，不需要手动传 CMake 参数。
+
+编译完成后会生成：
+
+- `cpp/build/qwen3tts_examples`: 三种模型的流式/非流式统一示例。
+- `cpp/build/qwen3tts_clone`: 旧版 Base Clone 示例，保留兼容。
+
+### 直接运行
+
+运行前请先导出对应 ONNX 目录：
+
+- Base: `onnx_fp16`
+- CustomVoice: `onnx_custom_fp16`
+- VoiceDesign: `onnx_design_fp16`
+
+然后直接执行：
+
+```bash
+./cpp/build/qwen3tts_examples
+```
+
+默认会一次跑完六个 C++ 示例：Base Clone、CustomVoice、VoiceDesign 三种模型，每种模型都会跑非流式和流式。
+
+会输出：
+
+- `outputs/cpp_examples/base_clone_nonstream.wav`
+- `outputs/cpp_examples/base_clone_stream.wav`
+- `outputs/cpp_examples/custom_voice_nonstream.wav`
+- `outputs/cpp_examples/custom_voice_stream.wav`
+- `outputs/cpp_examples/voice_design_nonstream.wav`
+- `outputs/cpp_examples/voice_design_stream.wav`
+
+默认读取的路径：
+
+- Base 模型目录：`/home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base`
+- CustomVoice 模型目录：`/home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`
+- VoiceDesign 模型目录：`/home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`
+- 参考音频：`data/ref_from_mp3_24k_mono.wav`
+- 输出目录：`outputs/cpp_examples`
+
+旧版 Base Clone 示例也可以直接运行：
 
 ```bash
 ./cpp/build/qwen3tts_clone
-```
-
-默认会读取：
-
-```text
-model_dir=/home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base
-onnx_dir=onnx_fp16
-ref_audio=data/ref_from_mp3_24k_mono.wav
-ref_text=告诉自己，不要怕
-output=outputs/cpp_product_clone.wav
-max_new_tokens=512
-do_sample=false
-```
-
-也可以手动指定参数：
-
-```bash
-./cpp/build/qwen3tts_clone \
-  --model-dir /home/zhang/.cache/modelscope/hub/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base \
-  --onnx-dir onnx_fp16 \
-  --ref-audio data/ref_from_mp3_24k_mono.wav \
-  --ref-text "告诉自己，不要怕" \
-  --text "小医仙身着淡紫色长裙，纤细腰肢束着一条银丝软带，一头乌黑长发如瀑般垂至腰际，几缕碎发轻掩着那张清丽中略带苍白的俏脸；她眉如远山含黛，眸若秋水映月，唇边总挂着一丝若有若无的浅笑，仿佛能化解世间所有伤痛——然而那笑意深处却藏着一抹令人心疼的孤寂，那是厄难毒体与生俱来的诅咒，是她以毕生之力抗争的宿命；玉手纤纤，指尖时常萦绕着淡淡的七彩毒雾，却偏偏能用这些夺人性命的毒物炼就救死扶伤的灵药，一如她矛盾而动人的存在：既是令人闻风丧胆的毒女，又是那个在青山镇小医馆里温柔为穷苦百姓诊治的善良姑娘，待到后来与萧炎并肩而行，那双素来沉静的眸子终于多了几分生机与暖意，宛如被春风拂过的寒潭，泛起粼粼波光。" \
-  --max-new-tokens 2048 \
-  --output outputs/cpp_product_clone.wav \
-  --sample \
-  --top-k 50 \
-  --top-p 1.0 \
-  --temperature 0.9
-```
-
-如果要开启采样：
-
-```bash
-./cpp/build/qwen3tts_clone --sample --top-k 50 --top-p 1.0 --temperature 0.9
-```
-
-CPU 运行：
-
-```bash
-./cpp/build/qwen3tts_clone --cpu
 ```
