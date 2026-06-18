@@ -22,6 +22,7 @@ struct SamplingOptions {
 class MainTokenSampler {
  public:
   explicit MainTokenSampler(SamplingOptions options);
+  MainTokenSampler(SamplingOptions options, std::mt19937_64* rng);
 
   int64_t Sample(const std::vector<float>& logits, const std::vector<int64_t>& generated_first_tokens);
 
@@ -31,7 +32,8 @@ class MainTokenSampler {
   int64_t SampleTopKTopP(const std::vector<float>& scores);
 
   SamplingOptions options_;
-  std::mt19937_64 rng_;
+  std::mt19937_64 owned_rng_;
+  std::mt19937_64* rng_;
 };
 
 }  // namespace qwen3tts

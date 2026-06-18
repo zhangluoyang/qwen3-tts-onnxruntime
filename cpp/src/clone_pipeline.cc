@@ -65,6 +65,10 @@ std::vector<std::pair<std::string, double>> ClonePipeline::SessionLoadTimings() 
 }
 
 CloneResult ClonePipeline::Run(const CloneInputs& inputs) {
+  return Run(inputs, nullptr);
+}
+
+CloneResult ClonePipeline::Run(const CloneInputs& inputs, std::mt19937_64* rng) {
   ValidateRank3(inputs.inputs_embeds, "inputs_embeds");
   ValidateRank3(inputs.trailing_text_hidden, "trailing_text_hidden");
   ValidateRank3(inputs.tts_pad_embed, "tts_pad_embed");
@@ -80,7 +84,7 @@ CloneResult ClonePipeline::Run(const CloneInputs& inputs) {
   sampling.first_codebook_mask_tail = config_.first_codebook_mask_tail;
   sampling.min_new_tokens = config_.min_new_tokens;
   sampling.seed = config_.seed;
-  MainTokenSampler sampler(sampling);
+  MainTokenSampler sampler(sampling, rng);
 
   auto prefill_start = Clock::now();
   auto state = RunPrefill(inputs);
@@ -141,10 +145,16 @@ CloneResult ClonePipeline::Run(const CloneInputs& inputs) {
 }
 
 CloneResult ClonePipeline::Run(const CloneInputs& inputs, const CloneRuntimeConfig& runtime_config) {
+  return Run(inputs, runtime_config, nullptr);
+}
+
+CloneResult ClonePipeline::Run(const CloneInputs& inputs,
+                               const CloneRuntimeConfig& runtime_config,
+                               std::mt19937_64* rng) {
   CloneRuntimeConfig previous = config_;
   config_ = runtime_config;
   try {
-    CloneResult result = Run(inputs);
+    CloneResult result = Run(inputs, rng);
     config_ = previous;
     return result;
   } catch (...) {

@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <random>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -64,7 +65,9 @@ class ClonePipeline {
   explicit ClonePipeline(CloneRuntimeConfig config);
 
   CloneResult Run(const CloneInputs& inputs);
+  CloneResult Run(const CloneInputs& inputs, std::mt19937_64* rng);
   CloneResult Run(const CloneInputs& inputs, const CloneRuntimeConfig& runtime_config);
+  CloneResult Run(const CloneInputs& inputs, const CloneRuntimeConfig& runtime_config, std::mt19937_64* rng);
   std::vector<std::pair<std::string, double>> SessionLoadTimings() const;
 
  private:

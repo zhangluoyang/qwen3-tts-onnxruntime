@@ -32,7 +32,11 @@ std::vector<float> SoftmaxSelected(const std::vector<float>& scores, const std::
 
 }  // namespace
 
-MainTokenSampler::MainTokenSampler(SamplingOptions options) : options_(options), rng_(options.seed) {}
+MainTokenSampler::MainTokenSampler(SamplingOptions options)
+    : options_(options), owned_rng_(options.seed), rng_(&owned_rng_) {}
+
+MainTokenSampler::MainTokenSampler(SamplingOptions options, std::mt19937_64* rng)
+    : options_(options), owned_rng_(options.seed), rng_(rng == nullptr ? &owned_rng_ : rng) {}
 
 int64_t MainTokenSampler::Sample(const std::vector<float>& logits,
                                  const std::vector<int64_t>& generated_first_tokens) {
@@ -109,7 +113,7 @@ int64_t MainTokenSampler::SampleTopKTopP(const std::vector<float>& scores) {
 
   auto probs = SoftmaxSelected(scores, indices);
   std::discrete_distribution<size_t> dist(probs.begin(), probs.end());
-  return indices[dist(rng_)];
+  return indices[dist(*rng_)];
 }
 
 }  // namespace qwen3tts

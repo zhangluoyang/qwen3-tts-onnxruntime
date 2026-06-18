@@ -277,6 +277,7 @@ std::vector<CloneResult> RunSegmentStream(Qwen3TTSOnnxModelBase& model,
   std::deque<std::pair<std::string, Int64Tensor>> rolling_segments;
   bool rolling_evicted = false;
   std::vector<CloneResult> outputs;
+  std::mt19937_64 stream_rng(options.generation.seed);
 
   auto all_anchor_segments = [&]() {
     std::vector<std::pair<std::string, Int64Tensor>> out;
@@ -318,7 +319,9 @@ std::vector<CloneResult> RunSegmentStream(Qwen3TTSOnnxModelBase& model,
     if (segment.empty()) return;
     auto [anchor_text, anchor_code] = combined_anchor();
     CloneInputs prompt = prompt_builder(segment, anchor_text, anchor_code);
-    CloneResult result = model.GenerateAudioFromPrompt(prompt, options.generation);
+    // Python 的 ConditionedSegmentStreamingSession 会把同一个 rng 传给每个 segment，
+    // seed=None；这里也让随机状态跨 segment 继续推进，避免每段都从同一 seed 重新采样。
+    CloneResult result = model.GenerateAudioFromPrompt(prompt, options.generation, &stream_rng);
     save_anchor(segment, result.generated_codes);
     outputs.push_back(std::move(result));
   };
@@ -425,6 +428,12 @@ CloneRuntimeConfig Qwen3TTSOnnxModelBase::MakeRuntimeConfig(const GenerationOpti
 CloneResult Qwen3TTSOnnxModelBase::GenerateAudioFromPrompt(const CloneInputs& prompt,
                                                            const GenerationOptions& options) {
   return pipeline_.Run(prompt, MakeRuntimeConfig(options));
+}
+
+CloneResult Qwen3TTSOnnxModelBase::GenerateAudioFromPrompt(const CloneInputs& prompt,
+                                                           const GenerationOptions& options,
+                                                           std::mt19937_64* rng) {
+  return pipeline_.Run(prompt, MakeRuntimeConfig(options), rng);
 }
 
 std::vector<std::pair<std::string, double>> Qwen3TTSOnnxModelBase::SessionLoadTimings() const {

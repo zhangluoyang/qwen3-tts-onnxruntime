@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -65,6 +66,9 @@ class Qwen3TTSOnnxModelBase {
   virtual ~Qwen3TTSOnnxModelBase();
 
   CloneResult GenerateAudioFromPrompt(const CloneInputs& prompt, const GenerationOptions& options);
+  CloneResult GenerateAudioFromPrompt(const CloneInputs& prompt,
+                                      const GenerationOptions& options,
+                                      std::mt19937_64* rng);
   std::vector<std::pair<std::string, double>> SessionLoadTimings() const;
   int64_t AudioSampleRate() const;
   int64_t NumCodeGroups() const;
