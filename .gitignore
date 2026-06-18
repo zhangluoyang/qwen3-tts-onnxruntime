@@ -7,8 +7,11 @@ outputs/
 onnx*/
 *.onnx
 
-cpp/
+cpp/build/
+cpp/third_party/
 script/
 scripts/
+!cpp/scripts/
+!cpp/scripts/**
 
 .vscode/

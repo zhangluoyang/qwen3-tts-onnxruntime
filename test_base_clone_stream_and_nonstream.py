@@ -100,18 +100,18 @@ def main() -> None:
     )
     save_audio(OUTPUT_DIR / "base_clone_nonstream.wav", nonstream.audio, nonstream.sample_rate)
     print(time.time() - start)
-    start = time.time()
-    stream_chunks = model.stream_clone_audio_from_reference(
-        STREAM_TEXT_DELTAS,
-        ref_audio=REF_AUDIO,
-        ref_text=REF_TEXT,
-        language="chinese",
-        max_kv_cache_len=256,
-        kv_anchor_segment_count=4
-    )
-    stream_audio, stream_sr = concat_stream_chunks(stream_chunks)
-    save_audio(OUTPUT_DIR / "base_clone_stream.wav", stream_audio, stream_sr)
-    print(time.time() - start)
+    # start = time.time()
+    # stream_chunks = model.stream_clone_audio_from_reference(
+    #     STREAM_TEXT_DELTAS,
+    #     ref_audio=REF_AUDIO,
+    #     ref_text=REF_TEXT,
+    #     language="chinese",
+    #     max_kv_cache_len=256,
+    #     kv_anchor_segment_count=4
+    # )
+    # stream_audio, stream_sr = concat_stream_chunks(stream_chunks)
+    # save_audio(OUTPUT_DIR / "base_clone_stream.wav", stream_audio, stream_sr)
+    # print(time.time() - start)
 
 if __name__ == "__main__":
     main()
