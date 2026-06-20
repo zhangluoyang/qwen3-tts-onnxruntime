@@ -5,9 +5,12 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "qwen3tts/build_config.h"
 
 namespace qwen3tts {
 namespace {
@@ -58,21 +61,34 @@ void PreloadSharedLibraries(const std::vector<std::filesystem::path>& paths) {
 }
 
 void PreloadCudaProviderDependencies() {
-  const std::filesystem::path site_packages = "/home/zhang/miniconda3/lib/python3.12/site-packages/nvidia";
-  PreloadSharedLibraries({
-      site_packages / "cuda_runtime/lib/libcudart.so.12",
-      site_packages / "cublas/lib/libcublas.so.12",
-      site_packages / "cublas/lib/libcublasLt.so.12",
-      site_packages / "cudnn/lib/libcudnn.so.9",
-      site_packages / "cudnn/lib/libcudnn_adv.so.9",
-      site_packages / "cudnn/lib/libcudnn_cnn.so.9",
-      site_packages / "cudnn/lib/libcudnn_ops.so.9",
-      site_packages / "cudnn/lib/libcudnn_graph.so.9",
-      site_packages / "cudnn/lib/libcudnn_heuristic.so.9",
-      site_packages / "cudnn/lib/libcudnn_engines_runtime_compiled.so.9",
-      site_packages / "cudnn/lib/libcudnn_engines_precompiled.so.9",
-      site_packages / "cufft/lib/libcufft.so.11",
-      site_packages / "curand/lib/libcurand.so.10",
+  static std::once_flag once;
+  std::call_once(once, [] {
+    const std::vector<std::string> library_names = {
+        "libcudart.so.12",
+        "libcublas.so.12",
+        "libcublasLt.so.12",
+        "libcudnn.so.9",
+        "libcudnn_adv.so.9",
+        "libcudnn_cnn.so.9",
+        "libcudnn_ops.so.9",
+        "libcudnn_graph.so.9",
+        "libcudnn_heuristic.so.9",
+        "libcudnn_engines_runtime_compiled.so.9",
+        "libcudnn_engines_precompiled.so.9",
+        "libcufft.so.11",
+        "libcurand.so.10",
+    };
+    std::vector<std::filesystem::path> paths;
+    for (const auto& name : library_names) {
+      for (const auto& dir : kCudaProviderLibDirs) {
+        auto path = std::filesystem::path(std::string(dir)) / name;
+        if (std::filesystem::exists(path)) {
+          paths.push_back(path);
+          break;
+        }
+      }
+    }
+    PreloadSharedLibraries(paths);
   });
 }
 

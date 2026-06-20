@@ -1,0 +1,11 @@
+#pragma once
+
+#include <array>
+#include <string_view>
+
+namespace qwen3tts {
+
+inline constexpr std::array<std::string_view, @QWEN3TTS_CUDA_PROVIDER_LIB_DIRS_COUNT@> kCudaProviderLibDirs = {@QWEN3TTS_CUDA_PROVIDER_LIB_DIRS_INITIALIZER@
+};
+
+}  // namespace qwen3tts
