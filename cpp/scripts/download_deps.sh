@@ -103,5 +103,6 @@ cat <<EOF
   FFTW3f:       ${FFTW_PREFIX}
 
 下一步编译:
-  python build_cpp.py
+  cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+  cmake --build cpp/build -j
 EOF

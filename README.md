@@ -104,10 +104,11 @@ CUDA、cuDNN、cuBLAS、cuFFT、cuRAND 这些运行库仍然使用当前 Python 
 ### 编译
 
 ```bash
-python build_cpp.py
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/build -j
 ```
 
-`build_cpp.py` 会自动使用 `cpp/third_party/` 下面下载好的 ONNX Runtime 和 FFTW3f，不需要手动传 CMake 参数。
+CMake 会自动使用 `cpp/third_party/` 下面下载好的 ONNX Runtime 和 FFTW3f，不需要手动传依赖路径参数。
 
 编译完成后会生成：
 
